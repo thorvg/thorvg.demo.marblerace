@@ -1,0 +1,385 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #09090a;
+  --surface: #121214;
+  --surface-2: #17171a;
+  --sunken: #0d0d0f;
+  --line: #26262a;
+  --line-strong: #3b3b42;
+  --ink: #ececee;
+  --ink-dim: #8e929a;
+  /* The two ends of the ThorVG bolt: warm for actions, cool for state. */
+  --accent: #fb832e;
+  --accent-hover: #ff9550;
+  --accent-soft: rgba(251, 131, 46, 0.14);
+  --cool: #00e0a0;
+  --cool-soft: rgba(0, 224, 160, 0.13);
+  --bolt: linear-gradient(115deg, #0075ff 0%, #00e5a3 33%, #ffdd00 66%, #ff3300 100%);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(620px 300px at 6% -6%, rgba(0, 224, 160, 0.07), transparent 68%),
+    radial-gradient(700px 340px at 96% -4%, rgba(251, 131, 46, 0.07), transparent 70%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  font-family: ui-sans-serif, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'Apple SD Gothic Neo',
+    'Noto Sans KR', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .stage-frame {
+    @apply relative grid place-items-center overflow-hidden border;
+    border-color: var(--line);
+    border-radius: 16px;
+    /* Width leads, height follows the board ratio, so a narrow column never
+       forces the page wider than the viewport. dvh keeps mobile browsers from
+       measuring against a URL bar that is not on screen. */
+    width: min(100%, calc((100vh - 150px) * 0.679));
+    width: min(100%, calc((100dvh - 150px) * 0.679));
+    aspect-ratio: 19 / 28;
+    max-width: 100%;
+    /* The surround the board sits in. It only shows when the drawing buffer is
+       pinned for a recording, and it carries the same palette as the canvas. */
+    background:
+      radial-gradient(130% 72% at 50% -14%, rgba(0, 224, 160, 0.1), transparent 64%),
+      radial-gradient(130% 72% at 50% 114%, rgba(251, 131, 46, 0.09), transparent 64%),
+      #08080a;
+  }
+
+  /* Slow drifting sheen behind the board. */
+  .stage-frame::before {
+    content: '';
+    position: absolute;
+    inset: -30%;
+    z-index: 0;
+    opacity: 0;
+    background: radial-gradient(42% 30% at 50% 50%, rgba(120, 170, 255, 0.17), transparent 70%);
+    transition: opacity 0.5s ease;
+    animation: drift 26s ease-in-out infinite;
+  }
+
+  .stage-frame > canvas {
+    position: relative;
+    z-index: 1;
+    transition: box-shadow 0.4s ease, border-radius 0.4s ease;
+  }
+
+  /* Overlays (fullscreen button, REC badge, controls) stay above the board. */
+  .stage-frame > *:not(canvas) {
+    z-index: 2;
+  }
+
+  /* Recording pins the buffer, so the board becomes a screen in a room. */
+  .stage-frame[data-pinned='true']::before {
+    opacity: 1;
+  }
+
+  .stage-frame[data-pinned='true'] > canvas {
+    border-radius: 12px;
+    box-shadow:
+      0 0 0 1px rgba(168, 186, 214, 0.1),
+      0 26px 70px -18px rgba(0, 0, 0, 0.85),
+      0 0 110px rgba(0, 224, 160, 0.06);
+  }
+
+  .panel {
+    @apply border;
+    border-color: var(--line);
+    background: var(--surface);
+    border-radius: 14px;
+  }
+
+  .field {
+    @apply w-full px-3 py-2 text-sm outline-none transition;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--sunken);
+    color: var(--ink);
+  }
+
+  .field::placeholder {
+    color: #6d6d75;
+  }
+
+  .field:focus {
+    border-color: var(--cool);
+    box-shadow: 0 0 0 3px var(--cool-soft);
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-[13px] font-semibold transition;
+    @apply disabled:cursor-not-allowed disabled:opacity-35;
+    border-radius: 9px;
+  }
+
+  .btn-primary {
+    @apply btn;
+    background: var(--accent);
+    color: #180a02;
+  }
+
+  .btn-primary:not(:disabled):hover {
+    background: var(--accent-hover);
+  }
+
+  .btn-primary:disabled {
+    background: #1d1d20;
+    color: #6f6f77;
+    opacity: 1;
+  }
+
+  .btn-ghost {
+    @apply btn border;
+    border-color: var(--line);
+    color: var(--ink-dim);
+    background: transparent;
+  }
+
+  .btn-ghost:not(:disabled):hover {
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+
+  .segment {
+    @apply flex p-[3px];
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--sunken);
+  }
+
+  .segment button {
+    @apply flex-1 whitespace-nowrap px-2.5 py-[5px] text-xs font-semibold transition;
+    border-radius: 7px;
+    color: var(--ink-dim);
+  }
+
+  .segment button:not(:disabled):hover {
+    color: var(--ink);
+  }
+
+  .segment button[data-active='true'] {
+    background: var(--cool-soft);
+    color: #5ff0c4;
+    box-shadow: inset 0 0 0 1px rgba(0, 224, 160, 0.28);
+  }
+
+  .chip {
+    @apply flex items-center gap-2 py-1 pl-2 pr-1 text-sm;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-2);
+  }
+
+  /* Brand signature: the bolt spectrum as a hairline under the header. */
+  .bolt-rule {
+    height: 2px;
+    border-radius: 2px;
+    background: var(--bolt);
+    opacity: 0.85;
+  }
+
+  .bolt-mark {
+    background: var(--bolt);
+  }
+
+  .label {
+    @apply mb-1.5 block text-[11px] font-medium;
+    color: var(--ink-dim);
+  }
+
+  /* Map editor --------------------------------------------------------- */
+
+  .tool-grid {
+    @apply grid gap-1.5;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tool-btn {
+    @apply flex items-center gap-2 px-2.5 py-2 text-[12px] font-medium transition;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--sunken);
+    color: var(--ink-dim);
+  }
+
+  .tool-btn:hover {
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+
+  .tool-btn[data-active='true'] {
+    background: var(--cool-soft);
+    border-color: rgba(0, 224, 160, 0.4);
+    color: #5ff0c4;
+  }
+
+  .range-field {
+    @apply block w-full;
+    height: 18px;
+    accent-color: var(--cool);
+    background: transparent;
+  }
+
+  /* While the editor owns the board the canvas is a drawing surface, so the
+     browser's own text selection and touch scrolling get out of the way. */
+  .stage-frame[data-editing='true'] > canvas {
+    touch-action: none;
+    user-select: none;
+  }
+
+  /* Map gallery -------------------------------------------------------- */
+
+  .gallery-grid {
+    @apply grid gap-3;
+    grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+  }
+
+  .giscus-holder {
+    @apply rounded-[14px] border p-3;
+    border-color: var(--line);
+    background: var(--surface);
+  }
+
+  /* Font combobox ------------------------------------------------------ */
+
+  .combo {
+    @apply relative;
+  }
+
+  .combo-list {
+    @apply absolute left-0 right-0 z-20 mt-1 max-h-60 overflow-y-auto py-1;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--surface-2);
+    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.5);
+  }
+
+  .combo-row {
+    @apply flex cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-[13px];
+  }
+
+  .combo-row[data-active='true'] {
+    background: var(--cool-soft);
+  }
+
+  .combo-row[aria-selected='true'] {
+    color: #5ff0c4;
+  }
+
+  .combo-meta {
+    @apply shrink-0 text-[10px] uppercase tracking-wide;
+    color: #6d6d75;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: #2f2f35;
+  border-radius: 999px;
+}
+
+.stage-frame:fullscreen,
+.stage-frame:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+}
+
+/* Landscape phones: put the controls beside the board and let the board use
+   the full height, otherwise a portrait board on a short screen is unusable. */
+@media (orientation: landscape) and (max-height: 640px) {
+  .app-shell {
+    gap: 0.75rem;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .app-grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.9rem;
+  }
+
+  .app-aside {
+    order: 1;
+  }
+
+  .app-stage {
+    order: 2;
+  }
+
+  .stage-frame {
+    width: calc((100dvh - 80px) * 0.679);
+    max-width: 100%;
+  }
+}
+
+/* Comfortable touch targets on phones. */
+@media (max-width: 640px) {
+  .btn {
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+
+  .segment button {
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+  }
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(-6%, -4%, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(6%, 4%, 0) scale(1.12);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}

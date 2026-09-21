@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- 기존 로고의 시그니처 4색 멀티 그라데이션 -->
+    <linearGradient id="pinballGradient" x1="15%" y1="10%" x2="85%" y2="90%">
+      <stop offset="0%" stop-color="#0075FF"/>   <!-- Cyan / Blue -->
+      <stop offset="33%" stop-color="#00E5A3"/>  <!-- Mint Green -->
+      <stop offset="66%" stop-color="#FFDD00"/>  <!-- Yellow -->
+      <stop offset="100%" stop-color="#FF3300"/> <!-- Vibrant Red/Orange -->
+    </linearGradient>
+
+    <!-- 구슬 입체감을 위한 음영 (Shadow & Rim Light) -->
+    <radialGradient id="sphereShade" cx="35%" cy="30%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.5"/>
+      <stop offset="40%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="80%" stop-color="#000000" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.75"/>
+    </radialGradient>
+
+    <!-- 핀볼 구슬 상단 반사광 (Glass/Chrome Specular Highlight) -->
+    <linearGradient id="topHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.0"/>
+    </linearGradient>
+
+    <!-- 구슬 내부 하단 반사광 -->
+    <linearGradient id="bottomReflect" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 다크 배경 (앱 아이콘/스플래시 화면용) -->
+  <rect width="512" height="512" fill="#08080A" rx="112"/>
+
+  <!-- 1. 구슬 메인 컬러 베이스 -->
+  <circle cx="256" cy="256" r="170" fill="url(#pinballGradient)" />
+
+  <!-- 2. 3D 구형 입체 음영 레이어 -->
+  <circle cx="256" cy="256" r="170" fill="url(#sphereShade)" />
+
+  <!-- 3. 상단 곡면 하이라이트 (구슬 느낌 극대화) -->
+  <ellipse cx="240" cy="145" rx="100" ry="42" fill="url(#topHighlight)" transform="rotate(-15, 240, 145)" />
+
+  <!-- 4. 하단 은은한 림 라이트 반사광 -->
+  <ellipse cx="256" cy="395" rx="110" ry="20" fill="url(#bottomReflect)" opacity="0.6" />
+</svg>

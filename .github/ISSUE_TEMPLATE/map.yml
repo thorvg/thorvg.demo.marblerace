@@ -1,0 +1,30 @@
+name: Share a map
+description: Put a track you built in the map editor into the gallery.
+title: "[map] "
+labels: ["map"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use the **Share to gallery** button in the app rather than filling this in
+        by hand — it packs the map for you. Give the issue a title and submit.
+
+        Once it is merged into the gallery this issue stays open as the place to
+        talk about the map, so leave a note if there is something to say about it.
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Map code
+      description: Filled in by the Share button. Editing it will break the map.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything worth knowing about the track. Optional.
+    validations:
+      required: false
