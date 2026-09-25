@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RendererType } from '@thorvg/webcanvas';
 import BrandMark from '../components/BrandMark';
 import NamePanel from '../components/NamePanel';
-import Comments from '../components/Comments';
 import MapEditorPanel from '../components/MapEditorPanel';
 import RaceStage, { type StageHandle } from '../components/RaceStage';
 import type { Blueprint } from '../lib/blueprint';
@@ -132,8 +131,7 @@ export default function Pinball() {
     if (!hydrated) return;
     // Started from what is already there, not from nothing: the address bar can
     // be carrying somebody else's parameter, and rebuilding the query from our
-    // own state alone would throw it away. giscus hands its sign-in token back
-    // exactly that way, so wiping the query silently undid every login.
+    // own state alone would throw it away.
     const params = new URLSearchParams(window.location.search);
     const own = (key: string, value: string | null) => (value === null ? params.delete(key) : params.set(key, value));
 
@@ -400,10 +398,6 @@ export default function Pinball() {
           />
         </section>
       </div>
-
-      <section className="mt-6 border-t pt-6" style={{ borderColor: 'var(--line)' }}>
-        <Comments lang={locale} />
-      </section>
 
       <footer className="pb-3 text-center text-[11px] leading-relaxed text-[color:var(--ink-dim)]">
         Thor Pinrace powered by ThorVG Engine

@@ -247,12 +247,6 @@ body {
     grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
   }
 
-  .giscus-holder {
-    @apply rounded-[14px] border p-3;
-    border-color: var(--line);
-    background: var(--surface);
-  }
-
   /* Font combobox ------------------------------------------------------ */
 
   .combo {
