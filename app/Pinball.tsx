@@ -262,7 +262,7 @@ export default function Pinball() {
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <BrandMark />
-          <h1 className="text-[22px] font-semibold tracking-tight sm:text-[25px]">ThorVG Pinrace</h1>
+          <h1 className="text-[22px] font-semibold tracking-tight sm:text-[25px]">Thor Marble Race</h1>
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -400,7 +400,7 @@ export default function Pinball() {
       </div>
 
       <footer className="pb-3 text-center text-[11px] leading-relaxed text-[color:var(--ink-dim)]">
-        Thor Pinrace powered by ThorVG Engine
+        Thor Marble Race powered by ThorVG Engine
       </footer>
     </main>
   );

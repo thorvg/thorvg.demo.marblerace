@@ -669,7 +669,7 @@ export function exportRace(options: ExportOptions): ExportResult {
     op: frames,
     w: WIDTH,
     h: HEIGHT,
-    nm: `ThorVG Pinrace — ${options.seed}`,
+    nm: `Thor Marble Race — ${options.seed}`,
     ddd: 0,
     assets: build.assets,
     layers,

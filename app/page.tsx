@@ -45,8 +45,8 @@ export async function generateMetadata({
   card.set('lang', run.locale);
 
   const title = run.names.length
-    ? `ThorVG Pinrace · ${t.run.runners(run.names.length)}`
-    : 'ThorVG Pinrace';
+    ? `Thor Marble Race · ${t.run.runners(run.names.length)}`
+    : 'Thor Marble Race';
   const description = run.names.length
     ? `${run.names.slice(0, 6).join(', ')}${run.names.length > 6 ? '…' : ''} — ${t.settings.tracks[run.track].label}, ${run.seed}`
     : t.roster.hint;

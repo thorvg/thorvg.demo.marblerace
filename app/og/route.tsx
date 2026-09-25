@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
           <BrandMark size={64} />
           <div style={{ display: "flex", fontSize: 58, letterSpacing: -1.5 }}>
-            ThorVG Pinrace
+            Thor Marble Race
           </div>
         </div>
 

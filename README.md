@@ -5,7 +5,7 @@
 
 # Thor Marble Race
 
-![Thor Pinrace](docs/screenshot.jpg)
+![Thor Marble Race](docs/screenshot.jpg)
 
 **"Drop the Marbles, Let Fate Roll!"**
 

@@ -12,7 +12,7 @@ import GalleryList from '../../components/GalleryList';
 import { galleryIssuesUrl } from '../../lib/gallery';
 
 export const metadata: Metadata = {
-  title: 'Gallery — ThorVG Pinrace',
+  title: 'Gallery — Thor Marble Race',
   description: 'Tracks built in the map editor and shared by the people who made them.',
 };
 
@@ -40,7 +40,7 @@ export default function GalleryPage() {
       <GalleryList />
 
       <footer className="pb-3 text-center text-[11px] leading-relaxed text-[color:var(--ink-dim)]">
-        Thor Pinrace powered by ThorVG Engine
+        Thor Marble Race powered by ThorVG Engine
       </footer>
     </main>
   );
