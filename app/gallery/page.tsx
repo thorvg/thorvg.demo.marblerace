@@ -40,9 +40,7 @@ export default function GalleryPage() {
       <GalleryList />
 
       <footer className="pb-3 text-center text-[11px] leading-relaxed text-[color:var(--ink-dim)]">
-        Copyright (c) 2026 ThorVG Project
-        <br />
-        MIT License
+        Thor Pinrace powered by ThorVG Engine
       </footer>
     </main>
   );

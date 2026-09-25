@@ -5,7 +5,7 @@
 
 import type { LinearGradient, Scene, Shape, Text, ThorVGNamespace } from '@thorvg/webcanvas';
 import { clamp, easeOutBack, easeOutCubic, lerp, span } from '../easing';
-import { isLatin, type FontResolver } from '../fonts';
+import { glyphDrop, isLatin, type FontResolver } from '../fonts';
 import { UI, lighten, mix } from '../palette';
 import type { Marble, Phase, RGB } from '../types';
 import { ColorPool, type Viewport } from './common';
@@ -422,7 +422,7 @@ export class HudLayer {
     const plateW = Math.max(textW, subW) + size * 1.9;
     const plateH = size * (banner.sub ? 2.9 : 1.95);
     const left = midX - plateW / 2;
-    const top = y - size * 1.08;
+    const top = banner.sub ? y - size * 1.08 : y - plateH / 2;
     const radius = size * 0.42;
     const color = banner.color;
 
@@ -520,6 +520,9 @@ export class HudLayer {
   ): void {
     const hot = lighten(color, 0.72);
     let x = startX;
+    // One lift for the whole line, from a capital, so the letters keep a shared baseline.
+    const reference = latin ? 'H' : '가';
+    const lift = glyphDrop(state.fontFor(reference), reference) * size;
 
     for (let i = 0; i < chars.length; i++) {
       const width = advance(chars[i]);
@@ -551,7 +554,7 @@ export class HudLayer {
         .fontSize(size * (0.82 + land * 0.18) * (1 + lit * 0.07))
         .fill(tone[0], tone[1], tone[2])
         .opacity(Math.round(fade * clamp(land, 0, 1) * 255))
-        .translate(centre, y + (1 - land) * size * 0.45);
+        .translate(centre, y - lift + (1 - land) * size * 0.45);
 
       if (!latin) letter.spacing(1, 1);
     }

@@ -230,7 +230,7 @@ export class Renderer {
       return;
     }
 
-    this.#track.update(frame.time, frame.finishEnergy);
+    this.#track.update(frame.time, frame.finishEnergy, frame.camera.y, viewHeight);
     this.#obstacles.update(this.#course, frame.camera.y, viewHeight);
     this.#marbles.update(frame.marbles, frame.hiddenMarble, this.#course.height, frame.leader, frame.time);
     this.#particles.update(frame.fx);

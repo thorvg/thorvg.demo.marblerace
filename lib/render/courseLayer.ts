@@ -8,11 +8,18 @@
 
 import type { LinearGradient, Scene, Shape, ThorVGNamespace } from '@thorvg/webcanvas';
 import { COURSE } from '../course';
-import { UI, lighten } from '../palette';
-import type { Course, Peg } from '../types';
-import { ShapePool, addCapsulePath } from './common';
+import { UI, darken, lighten } from '../palette';
+import type { Course, Peg, RGB } from '../types';
+import { ColorPool, ShapePool, addCapsulePath, addExtrudedCapsule, addRotatedRect } from './common';
+import { addLamp, buildPlayfield, lampGlow, planPlayfield, type Lamp } from './playfield';
 
 const BAND = 900;
+const WALL_DEPTH = 9;
+const WALL_R = 9;
+const WALL_SIDE: RGB = [74, 14, 12];
+const INSERT_STEP = 64;
+
+const GLOW_REACH = 46;
 
 export class CourseLayer {
   #tvg: ThorVGNamespace;
@@ -21,8 +28,11 @@ export class CourseLayer {
   #boostShapes: ShapePool;
   #finishLine: Shape;
   #finishGlow: Shape;
+  #finishGlowFill: LinearGradient;
   #finishFill: LinearGradient;
   #goalRing: Shape;
+  #lamps: Lamp[] = [];
+  #lit: ColorPool;
   #staticScene: Scene;
   /**
    * The baked geometry, held in one child scene. A new course, or a repaint,
@@ -35,10 +45,13 @@ export class CourseLayer {
     this.#tvg = tvg;
     this.#course = course;
     this.#staticScene = staticScene;
+    this.#lit = new ColorPool(tvg, liveScene);
+
     this.#flashes = new ShapePool(tvg, liveScene, tvg.BlendMethod.Add);
     this.#boostShapes = new ShapePool(tvg, liveScene);
 
     this.#finishGlow = new tvg.Shape();
+    this.#finishGlowFill = new tvg.LinearGradient(0, 0, 0, 1);
     liveScene.add(this.#finishGlow);
 
     this.#finishLine = new tvg.Shape();
@@ -61,33 +74,43 @@ export class CourseLayer {
     this.#staticScene.add(baked);
     this.#baked = baked;
 
+    const plan = planPlayfield(course);
+    this.#lamps = plan.lamps;
+    buildPlayfield(tvg, baked, course, plan);
     this.#buildRails(tvg, baked, course);
     this.#buildBands(tvg, baked, course);
     this.#buildFinishBed(tvg, baked, course);
+
+    const y = course.finishY;
+    const gold = UI.gold;
+    this.#finishGlowFill = new tvg.LinearGradient(0, y - GLOW_REACH, 0, y + GLOW_REACH);
+    this.#finishGlowFill.setStops(
+      [0, [gold[0], gold[1], gold[2], 0]],
+      [0.35, [gold[0], gold[1], gold[2], 22]],
+      [0.5, [gold[0], gold[1], gold[2], 70]],
+      [0.65, [gold[0], gold[1], gold[2], 22]],
+      [1, [gold[0], gold[1], gold[2], 0]],
+    );
   }
 
   #buildRails(tvg: ThorVGNamespace, scene: Scene, course: Course): void {
-    const rails = new tvg.Shape();
-    const fill = new tvg.LinearGradient(0, 0, 0, course.height);
-    // Rails read as structure, not as a highlight: keep them below the pegs.
-    fill.setStops(
-      [0, [86, 99, 112, 255]],
-      [0.5, [44, 52, 62, 255]],
-      [1, [86, 99, 112, 255]],
-    );
-    addCapsulePath(rails, COURSE.left, 40, COURSE.left, course.height - 40, 7);
-    addCapsulePath(rails, COURSE.right, 40, COURSE.right, course.height - 40, 7);
-    rails.fill(fill);
-    scene.add(rails);
+    const top = 40;
+    const bottom = course.height - 40;
 
-    // Distance ticks: the scrolling cue that sells the speed of the descent.
-    const ticks = new tvg.Shape();
-    for (let y = 260; y < course.height - 200; y += 240) {
-      ticks.appendRect(COURSE.left + 10, y, 26, 4, { rx: 2, ry: 2 });
-      ticks.appendRect(COURSE.right - 36, y, 26, 4, { rx: 2, ry: 2 });
+    for (const x of [COURSE.left, COURSE.right]) {
+      const rail = new tvg.Shape();
+      const fill = new tvg.LinearGradient(x - 7, 0, x + 7, 0);
+      fill.setStops(
+        [0, [34, 40, 49, 255]],
+        [0.3, [150, 166, 182, 255]],
+        [0.5, [96, 110, 125, 255]],
+        [0.85, [44, 52, 62, 255]],
+        [1, [26, 31, 38, 255]],
+      );
+      addCapsulePath(rail, x, top, x, bottom, 7);
+      rail.fill(fill);
+      scene.add(rail);
     }
-    ticks.fill(UI.trackLight[0], UI.trackLight[1], UI.trackLight[2], 55);
-    scene.add(ticks);
   }
 
   #buildBands(tvg: ThorVGNamespace, scene: Scene, course: Course): void {
@@ -102,48 +125,28 @@ export class CourseLayer {
       if (!pegs.length && !walls.length) continue;
 
       if (walls.length) {
-        const rail = new tvg.Shape();
-        const core = new tvg.Shape();
+        const side = new tvg.Shape();
+        const inserts = new tvg.Shape();
+        for (const w of walls) addExtrudedCapsule(side, w.x1, w.y1, w.x2, w.y2, WALL_R, WALL_DEPTH);
+        side.fill(...WALL_SIDE, 255).stroke({ width: 1.2, color: [18, 4, 4, 255] });
+        scene.add(side);
         for (const w of walls) {
-          addCapsulePath(rail, w.x1, w.y1, w.x2, w.y2, 8);
-          addCapsulePath(core, w.x1, w.y1, w.x2, w.y2, 3);
+          scene.add(metalTop(tvg, w.x1, w.y1, w.x2, w.y2, WALL_R));
+          const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+          const count = Math.floor(len / INSERT_STEP);
+          const rot = Math.atan2(w.y2 - w.y1, w.x2 - w.x1);
+          for (let i = 1; i < count; i++) {
+            const t = i / count;
+            addRotatedRect(inserts, w.x1 + (w.x2 - w.x1) * t, w.y1 + (w.y2 - w.y1) * t, 12, 4.2, rot);
+          }
         }
-        rail.fill(UI.track[0], UI.track[1], UI.track[2], 255);
-        core.fill(UI.trackLight[0], UI.trackLight[1], UI.trackLight[2], 150);
-        scene.add(rail);
-        scene.add(core);
+        inserts.fill(255, 204, 40, 235);
+        scene.add(inserts);
       }
 
-      const plain = pegs.filter((p) => !p.bumper);
-      if (plain.length) {
-        const bodies = new tvg.Shape();
-        const shine = new tvg.Shape();
-        for (const p of plain) {
-          bodies.appendCircle(p.x, p.y, p.r);
-          shine.appendCircle(p.x - p.r * 0.22, p.y - p.r * 0.3, p.r * 0.58);
-        }
-        bodies.fill(UI.peg[0], UI.peg[1], UI.peg[2], 255).stroke({ width: 1.4, color: [16, 24, 52, 220] });
-        shine.fill(UI.pegLight[0], UI.pegLight[1], UI.pegLight[2], 150);
-        scene.add(bodies);
-        scene.add(shine);
-      }
-
-      const bumpers = pegs.filter((p) => p.bumper);
-      if (bumpers.length) {
-        const bodies = new tvg.Shape();
-        const shine = new tvg.Shape();
-        const cap = new tvg.Shape();
-        for (const p of bumpers) {
-          bodies.appendCircle(p.x, p.y, p.r);
-          shine.appendCircle(p.x - p.r * 0.24, p.y - p.r * 0.28, p.r * 0.62);
-          cap.appendCircle(p.x, p.y, p.r * 0.26);
-        }
-        bodies.fill(UI.bumper[0], UI.bumper[1], UI.bumper[2], 255).stroke({ width: 2, color: [255, 236, 200, 150] });
-        shine.fill(UI.bumperLight[0], UI.bumperLight[1], UI.bumperLight[2], 210);
-        cap.fill(90, 44, 14, 180);
-        scene.add(bodies);
-        scene.add(shine);
-        scene.add(cap);
+      for (const p of pegs) {
+        if (p.bumper) popBumper(tvg, scene, p);
+        else scene.add(chromePost(tvg, p));
       }
     }
   }
@@ -175,10 +178,14 @@ export class CourseLayer {
   }
 
   /** @param energy 0..1 flash when a marble crosses the line */
-  update(time: number, energy: number): void {
+  update(time: number, energy: number, cameraY: number, viewHeight: number): void {
+    this.#drawLamps(time, cameraY - viewHeight * 0.6, cameraY + viewHeight * 0.6);
+
     const course = this.#course;
     const y = course.finishY;
     const sweep = (time * 0.35) % 1;
+
+    const pulse = 0.5 + 0.5 * Math.sin(time * 2.4);
 
     // Animated gradient sweeping along the finish line.
     this.#finishFill.setStops(
@@ -190,48 +197,45 @@ export class CourseLayer {
     this.#finishLine.appendRect(COURSE.left, y - 4, COURSE.right - COURSE.left, 5, { rx: 2.5, ry: 2.5 });
     this.#finishLine.fill(this.#finishFill);
 
-    const pulse = 0.5 + 0.5 * Math.sin(time * 2.4);
     this.#finishGlow.reset();
     this.#finishGlow
-      .appendRect(COURSE.left, y - 26, COURSE.right - COURSE.left, 50, { rx: 16, ry: 16 })
-      .fill(UI.gold[0], UI.gold[1], UI.gold[2], Math.round(26 + pulse * 26 + energy * 120));
+      .appendRect(COURSE.left, y - GLOW_REACH, COURSE.right - COURSE.left, GLOW_REACH * 2)
+      .fill(this.#finishGlowFill)
+      .opacity(Math.round(Math.min(255, 120 + pulse * 60 + energy * 255)));
 
+    const goalR = course.goalRadius + Math.sin(time * 2) * 3;
     this.#goalRing.reset();
     this.#goalRing
-      .appendCircle(course.goal.x, course.goal.y, course.goalRadius + Math.sin(time * 2) * 3)
+      .appendCircle(course.goal.x, course.goal.y, goalR)
       .stroke({
         width: 4 + energy * 6,
         color: [UI.goal[0], UI.goal[1], UI.goal[2], Math.round(120 + pulse * 60 + energy * 75)],
       });
 
-    // Boost pads: chevrons scrolling downwards.
     this.#boostShapes.begin();
+    const dim = darken(UI.boost, 0.6);
+    const bright = lighten(UI.boost, 0.35);
     for (const pad of course.boosters) {
-      const body = this.#boostShapes.next();
-      body
-        .appendRect(pad.x, pad.y, pad.w, pad.h, { rx: 14, ry: 14 })
-        .fill(UI.boost[0], UI.boost[1], UI.boost[2], 34)
-        .stroke({ width: 1.5, color: [UI.boost[0], UI.boost[1], UI.boost[2], 90] });
+      this.#boostShapes
+        .next()
+        .appendRect(pad.x, pad.y, pad.w, pad.h, { rx: 12, ry: 12 })
+        .fill(4, 16, 18, 215)
+        .stroke({ width: 2, color: [UI.boost[0], UI.boost[1], UI.boost[2], 150] });
 
-      const arrows = this.#boostShapes.next();
       const rows = 3;
-      const span = pad.h / rows;
+      const step = pad.h / rows;
+      const half = Math.min(pad.w * 0.34, step * 1.1);
+      const unlit = this.#boostShapes.next();
+      const lit = this.#boostShapes.next();
+      const beat = (time * 2.6) % rows;
       for (let i = 0; i < rows; i++) {
-        const shift = ((time * 150 + i * span) % pad.h) - 12;
-        const cy = pad.y + shift;
-        if (cy < pad.y - 6 || cy > pad.y + pad.h - 10) continue;
-        const midX = pad.x + pad.w / 2;
-        const half = pad.w * 0.3;
-        arrows.moveTo(midX - half, cy);
-        arrows.lineTo(midX, cy + 18);
-        arrows.lineTo(midX + half, cy);
-        arrows.lineTo(midX + half - 10, cy);
-        arrows.lineTo(midX, cy + 8);
-        arrows.lineTo(midX - half + 10, cy);
-        arrows.close();
+        const cy = pad.y + step * (i + 0.2);
+        const on = Math.max(0, 1 - Math.abs(beat - i) * 1.4);
+        const target = on > 0.25 ? lit : unlit;
+        addChevron(target, pad.x + pad.w / 2, cy, half, step * 0.62);
       }
-      const bright = lighten(UI.boost, 0.2);
-      arrows.fill(bright[0], bright[1], bright[2], 165);
+      unlit.fill(dim[0], dim[1], dim[2], 255);
+      lit.fill(bright[0], bright[1], bright[2], 255);
     }
     this.#boostShapes.finish();
 
@@ -243,6 +247,24 @@ export class CourseLayer {
     this.#flashes.finish();
   }
 
+  #drawLamps(time: number, top: number, bottom: number): void {
+    this.#lit.begin();
+    for (const lamp of this.#lamps) {
+      if (lamp.y + lamp.r < top || lamp.y - lamp.r > bottom) continue;
+      const glow = lampGlow(lamp, time);
+      if (glow < 0.05) continue;
+
+      addLamp(this.#lit.shape(lamp.color, 70 * glow), lamp, 1.9);
+      addLamp(this.#lit.shape(lighten(lamp.color, 0.2), 255 * glow), lamp);
+      if (lamp.kind === 'dot') {
+        this.#lit
+          .shape(lighten(lamp.color, 0.8), 255 * glow)
+          .appendCircle(lamp.x - lamp.r * 0.18, lamp.y - lamp.r * 0.22, lamp.r * 0.46);
+      }
+    }
+    this.#lit.finish();
+  }
+
   #drawFlash(peg: Peg): void {
     const e = Math.min(1, peg.energy);
     const color = peg.bumper ? UI.bumperLight : UI.pegLight;
@@ -251,4 +273,101 @@ export class CourseLayer {
       .appendCircle(peg.x, peg.y, peg.r + 3 + (1 - e) * 16)
       .stroke({ width: 1.5 + e * 4, color: [color[0], color[1], color[2], Math.round(e * 190)] });
   }
+}
+
+function addChevron(shape: Shape, x: number, y: number, half: number, depth: number): void {
+  const t = depth * 0.42;
+  shape.moveTo(x - half, y);
+  shape.lineTo(x, y + depth);
+  shape.lineTo(x + half, y);
+  shape.lineTo(x + half, y + t * 0.2);
+  shape.lineTo(x + half - t * 0.9, y + t * 0.2);
+  shape.lineTo(x, y + depth - t);
+  shape.lineTo(x - half + t * 0.9, y + t * 0.2);
+  shape.lineTo(x - half, y + t * 0.2);
+  shape.close();
+}
+
+/** Unit normal of a segment, on the side facing the light (up and left). */
+function lightSide(x1: number, y1: number, x2: number, y2: number): { x: number; y: number } {
+  const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+  let nx = -(y2 - y1) / len;
+  let ny = (x2 - x1) / len;
+  if (nx * -0.6 + ny * -0.8 < 0) {
+    nx = -nx;
+    ny = -ny;
+  }
+  return { x: nx, y: ny };
+}
+
+function metalTop(tvg: ThorVGNamespace, x1: number, y1: number, x2: number, y2: number, r: number): Shape {
+  const n = lightSide(x1, y1, x2, y2);
+  const mx = (x1 + x2) / 2;
+  const my = (y1 + y2) / 2;
+  const fill = new tvg.LinearGradient(mx + n.x * r, my + n.y * r, mx - n.x * r, my - n.y * r);
+  fill.setStops(
+    [0, [255, 170, 130, 255]],
+    [0.16, [214, 72, 48, 255]],
+    [0.55, [150, 32, 24, 255]],
+    [1, [96, 18, 14, 255]],
+  );
+  const top = new tvg.Shape();
+  addCapsulePath(top, x1, y1, x2, y2, r);
+  return top.fill(fill).stroke({ width: 1.2, color: [30, 6, 6, 255] });
+}
+
+function chromePost(tvg: ThorVGNamespace, peg: Peg): Shape {
+  const fill = new tvg.RadialGradient(peg.x, peg.y, peg.r, peg.x - peg.r * 0.38, peg.y - peg.r * 0.44, 0);
+  fill.setStops(
+    [0, [255, 255, 255, 255]],
+    [0.18, [214, 222, 234, 255]],
+    [0.5, [96, 106, 124, 255]],
+    [0.82, [36, 40, 52, 255]],
+    [1, [138, 150, 170, 255]],
+  );
+  const post = new tvg.Shape();
+  post.appendCircle(peg.x, peg.y, peg.r).fill(fill).stroke({ width: 1.2, color: [8, 10, 16, 230] });
+  return post;
+}
+
+function popBumper(tvg: ThorVGNamespace, scene: Scene, peg: Peg): void {
+  const { x, y, r } = peg;
+
+  const rim = new tvg.Shape();
+  rim.appendCircle(x, y, r * 1.12).fill(90, 14, 10, 255).stroke({ width: 1.2, color: [10, 4, 4, 255] });
+  scene.add(rim);
+
+  const bodyFill = new tvg.RadialGradient(x, y, r, x - r * 0.3, y - r * 0.36, 0);
+  bodyFill.setStops(
+    [0, [255, 255, 255, 255]],
+    [0.55, [226, 222, 214, 255]],
+    [0.86, [150, 140, 132, 255]],
+    [1, [96, 84, 80, 255]],
+  );
+  const body = new tvg.Shape();
+  body.appendCircle(x, y, r * 0.92).fill(bodyFill);
+  scene.add(body);
+
+  const cap = UI.bumper;
+  const capFill = new tvg.RadialGradient(x, y, r * 0.6, x - r * 0.2, y - r * 0.24, 0);
+  const light = lighten(cap, 0.55);
+  const deep = darken(cap, 0.45);
+  capFill.setStops(
+    [0, [light[0], light[1], light[2], 255]],
+    [0.6, [cap[0], cap[1], cap[2], 255]],
+    [1, [deep[0], deep[1], deep[2], 255]],
+  );
+  const top = new tvg.Shape();
+  top.appendCircle(x, y, r * 0.6).fill(capFill).stroke({ width: 1.6, color: [255, 230, 200, 200] });
+  scene.add(top);
+
+  const jewelFill = new tvg.RadialGradient(x, y, r * 0.26, x - r * 0.08, y - r * 0.1, 0);
+  jewelFill.setStops([0, [190, 230, 255, 255]], [0.5, [40, 110, 240, 255]], [1, [10, 30, 110, 255]]);
+  const jewel = new tvg.Shape();
+  jewel.appendCircle(x, y, r * 0.26).fill(jewelFill).stroke({ width: 1, color: [255, 255, 255, 160] });
+  scene.add(jewel);
+
+  const spec = new tvg.Shape();
+  spec.appendCircle(x - r * 0.2, y - r * 0.26, r * 0.14).fill(255, 255, 255, 210);
+  scene.add(spec);
 }

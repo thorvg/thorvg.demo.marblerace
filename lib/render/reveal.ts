@@ -7,7 +7,7 @@ import type { Animation, Picture, RadialGradient, Scene, Shape, Text, ThorVGName
 
 import { UI, darken, lighten } from '../palette';
 import { clamp, easeOutBack, easeOutCubic, easeOutQuint, lerp, pulse, span } from '../easing';
-import { isLatin, type FontResolver } from '../fonts';
+import { glyphDrop, isLatin, type FontResolver } from '../fonts';
 import { skinPayload, type Skin } from '../skins';
 import { addCircleFromTop } from './common';
 import type { Marble, RankEntry, RGB, Vec2 } from '../types';
@@ -41,6 +41,7 @@ export class RevealLayer {
   #orb: Shape;
   #orbFill: RadialGradient;
   #orbLabel: Text;
+  #orbLabelLift = 0;
   #clipper: Shape;
   #clipperAnim: Shape;
   #picture: Picture;
@@ -80,9 +81,12 @@ export class RevealLayer {
 
     this.#orbGlow = new tvg.Shape();
     this.#orbGlowFill = new tvg.RadialGradient(0, 0, UNIT);
-    // Gradient fill, so no blend method (see the GL note in marbles.ts).
     this.#orbGlow.appendCircle(0, 0, UNIT).fill(this.#orbGlowFill);
-    scene.add(this.#orbGlow);
+    // Blended as a scene: GL faults on a blended gradient shape.
+    const glowScene = new tvg.Scene();
+    glowScene.blend(tvg.BlendMethod.Add);
+    glowScene.add(this.#orbGlow);
+    scene.add(glowScene);
 
     this.#ring = new tvg.Shape();
     scene.add(this.#ring);
@@ -208,8 +212,9 @@ export class RevealLayer {
     this.#orb.stroke({ width: 8, color: [...stop(darken(color, 0.5), 230)] });
 
     this.#orbGlowFill.setStops(
-      [0, stop(lighten(color, 0.35), 185)],
-      [0.4, stop(color, 88)],
+      [0, stop(lighten(color, 0.35), 255)],
+      [0.35, stop(color, 130)],
+      [0.7, stop(color, 36)],
       [1, stop(color, 0)],
     );
     this.#orbGlow.fill(this.#orbGlowFill);
@@ -232,7 +237,9 @@ export class RevealLayer {
 
     const initial = Array.from(winner.name.trim())[0] ?? '?';
     const ink = darken(color, 0.5);
-    this.#orbLabel.font(fontFor(initial)).text(initial).fontSize(ORB.r * 0.9).fill(ink[0], ink[1], ink[2]);
+    const font = fontFor(initial);
+    this.#orbLabelLift = glyphDrop(font, initial) * 0.9;
+    this.#orbLabel.font(font).text(initial).fontSize(ORB.r * 0.9).fill(ink[0], ink[1], ink[2]);
 
     // Wide tracking suits latin caps, Hangul needs far less.
     this.#label
@@ -370,7 +377,7 @@ export class RevealLayer {
     this.#orbLabel
       .fontSize(ORB.r * 0.9 * (radius / ORB.r))
       .opacity(this.#skin === 'none' ? Math.round(labelIn * 115) : 0)
-      .translate(x, y);
+      .translate(x, y - this.#orbLabelLift * radius);
 
     // Ring that draws itself, then a slow counter-rotating dashed ring.
     const trim = easeOutQuint(span(t, 1.0, 1.85));

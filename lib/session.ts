@@ -11,12 +11,6 @@ const KEY = 'thor-pinball:session';
 export interface SessionState {
   /** Marble artwork, keyed by runner name. */
   skins: Record<string, Skin>;
-  speed: number;
-  mode: string;
-  view: string;
-  follow: number | 'leader';
-  record: boolean;
-  sound: boolean;
   /** A hand drawn map, or null while the seeded generator is in charge. */
   map: Blueprint | null;
   /** Set when the marble artwork was too large to store. */
@@ -95,15 +89,6 @@ export function loadSession(): Partial<SessionState> | null {
 
     return {
       skins,
-      speed: typeof parsed.speed === 'number' ? parsed.speed : undefined,
-      mode: typeof parsed.mode === 'string' ? parsed.mode : undefined,
-      view: typeof parsed.view === 'string' ? parsed.view : undefined,
-      follow:
-        parsed.follow === 'leader' || typeof parsed.follow === 'number'
-          ? (parsed.follow as number | 'leader')
-          : undefined,
-      record: typeof parsed.record === 'boolean' ? parsed.record : undefined,
-      sound: typeof parsed.sound === 'boolean' ? parsed.sound : undefined,
       map: parsed.map ? parseBlueprint(JSON.stringify(parsed.map)) : null,
       skinsDropped: parsed.skinsDropped === true,
     };

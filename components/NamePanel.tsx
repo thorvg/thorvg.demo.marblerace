@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { MAX_NAMES } from '../lib/course';
 import type { Messages } from '../lib/i18n';
 import { css, marbleColor } from '../lib/palette';
@@ -13,10 +13,10 @@ interface NamePanelProps {
   skins: Record<string, Skin>;
   onAdd: (raw: string) => void;
   onRemove: (index: number) => void;
-  onClear: () => void;
-  onDemo: () => void;
   onSkin: (name: string, skin: Skin | null) => void;
   onSkinError: (message: string) => void;
+  title: string;
+  children?: ReactNode;
 }
 
 export default function NamePanel({
@@ -26,10 +26,10 @@ export default function NamePanel({
   skins,
   onAdd,
   onRemove,
-  onClear,
-  onDemo,
   onSkin,
   onSkinError,
+  title,
+  children,
 }: NamePanelProps) {
   const t = messages.roster;
   const text = messages.skin;
@@ -76,7 +76,7 @@ export default function NamePanel({
   return (
     <div className="panel p-4">
       <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="text-[13px] font-semibold">{t.title}</h2>
+        <h2 className="text-[13px] font-semibold">{title}</h2>
         <span className="text-[11px] text-[color:var(--ink-dim)]">{t.counter(names.length, MAX_NAMES)}</span>
       </div>
 
@@ -95,20 +95,8 @@ export default function NamePanel({
         </button>
       </form>
 
-      <p className="mt-2 text-[11px] leading-relaxed text-[color:var(--ink-dim)]">
-        {t.hint}
-      </p>
 
-      <div className="scroll-thin mt-3 flex max-h-[210px] flex-wrap gap-2 overflow-y-auto pr-1">
-        {names.length === 0 && (
-          <p
-            className="w-full rounded-[9px] border border-dashed py-6 text-center text-xs text-[color:var(--ink-dim)]"
-            style={{ borderColor: 'var(--line)' }}
-          >
-            {t.empty}
-          </p>
-        )}
-
+      <div className={`scroll-thin flex max-h-[210px] flex-wrap gap-2 overflow-y-auto pr-1 ${names.length ? 'mt-3' : ''}`}>
         {names.map((name, index) => {
           const skin = skins[name];
           return (
@@ -171,14 +159,7 @@ export default function NamePanel({
         }}
       />
 
-      <div className="mt-3 flex gap-2">
-        <button type="button" className="btn-ghost flex-1" onClick={onDemo} disabled={disabled}>
-          {t.demo}
-        </button>
-        <button type="button" className="btn-ghost flex-1" onClick={onClear} disabled={disabled || names.length === 0}>
-          {t.clear}
-        </button>
-      </div>
+      {children}
     </div>
   );
 }

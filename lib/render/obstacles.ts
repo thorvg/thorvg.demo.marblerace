@@ -9,9 +9,13 @@
 import type { Scene, ThorVGNamespace } from '@thorvg/webcanvas';
 import { UI, darken, lighten } from '../palette';
 import type { Course, Obstacle, RGB } from '../types';
-import { ColorPool, addCapsulePath } from './common';
+import { ColorPool, addCapsulePath, addExtrudedCapsule } from './common';
 
 const GHOST_STEP = 0.075;
+const DEPTH = 8;
+
+const SHINE_X = -0.28;
+const SHINE_Y = -0.34;
 
 export class ObstacleLayer {
   #pool: ColorPool;
@@ -30,39 +34,51 @@ export class ObstacleLayer {
       if (o.pivotY + o.reach < top || o.pivotY - o.reach > bottom) continue;
 
       const base: RGB = o.hot ? UI.hot : UI.machine;
-      const shell = darken(base, 0.35);
 
       if (Math.abs(o.spin) > 0.2) {
-        this.#paint(o, o.angle - o.spin * GHOST_STEP, this.#pool.shape(base, 34), 1);
+        this.#paint(o, o.angle - o.spin * GHOST_STEP, this.#pool.shape(base, 40), 1);
       }
-      this.#paint(o, o.angle, this.#pool.shape(shell, 255), 1);
-      this.#paint(o, o.angle, this.#pool.shape(base, 255), 0.62);
-      this.#paint(o, o.angle, this.#pool.shape(lighten(base, 0.55), 210), 0.24);
+      this.#paint(o, o.angle, this.#pool.shape(darken(base, 0.62), 255), 1, 0, DEPTH);
+      this.#paint(o, o.angle, this.#pool.shape(darken(base, 0.4), 255), 1);
+      this.#paint(o, o.angle, this.#pool.shape(darken(base, 0.1), 255), 0.84);
+      this.#paint(o, o.angle, this.#pool.shape(lighten(base, 0.18), 255), 0.5, 0.2);
+      this.#paint(o, o.angle, this.#pool.shape(lighten(base, 0.75), 200), 0.14, 0.7);
     }
 
     this.#pool.finish();
   }
 
-  /** Draws every part of an obstacle at `angle`, with radii scaled by `weight`. */
-  #paint(o: Obstacle, angle: number, shape: ReturnType<ColorPool['shape']>, weight: number): void {
+  #paint(
+    o: Obstacle,
+    angle: number,
+    shape: ReturnType<ColorPool['shape']>,
+    weight: number,
+    shine = 0,
+    depth = 0,
+  ): void {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
     const px = o.pivotX + o.ox;
     const py = o.pivotY + o.oy;
 
     for (const part of o.parts) {
+      const dx = part.r * shine * SHINE_X;
+      const dy = part.r * shine * SHINE_Y;
+      const r = Math.max(1, part.r * weight);
       if (part.kind === 'circle') {
-        shape.appendCircle(px + part.cx * cos - part.cy * sin, py + part.cx * sin + part.cy * cos, part.r * weight);
+        // A zero length capsule, wound like the arms, so a hub never cancels out where an arm crosses it.
+        const cx = px + part.cx * cos - part.cy * sin + dx;
+        const cy = py + part.cx * sin + part.cy * cos + dy;
+        if (depth > 0) addCapsulePath(shape, cx, cy, cx, cy + depth, r);
+        else addCapsulePath(shape, cx, cy, cx, cy, r);
         continue;
       }
-      addCapsulePath(
-        shape,
-        px + part.ax * cos - part.ay * sin,
-        py + part.ax * sin + part.ay * cos,
-        px + part.bx * cos - part.by * sin,
-        py + part.bx * sin + part.by * cos,
-        Math.max(1, part.r * weight),
-      );
+      const ax = px + part.ax * cos - part.ay * sin + dx;
+      const ay = py + part.ax * sin + part.ay * cos + dy;
+      const bx = px + part.bx * cos - part.by * sin + dx;
+      const by = py + part.bx * sin + part.by * cos + dy;
+      if (depth > 0) addExtrudedCapsule(shape, ax, ay, bx, by, r, depth);
+      else addCapsulePath(shape, ax, ay, bx, by, r);
     }
   }
 }

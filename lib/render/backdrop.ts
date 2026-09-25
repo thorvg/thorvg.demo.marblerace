@@ -1,7 +1,7 @@
 /**
  * Background: an animated gradient sky in screen space plus a slow parallax
- * field that drifts past at a quarter of the track speed, so the descent reads
- * as depth rather than a flat scroll.
+ * field of glow orbs that drifts past at a quarter of the track speed, so the
+ * descent reads as depth rather than a flat scroll.
  */
 
 import type { RadialGradient, Scene, Shape, ThorVGNamespace } from '@thorvg/webcanvas';
@@ -9,8 +9,8 @@ import { AURORA, mix } from '../palette';
 import type { RGB } from '../types';
 import type { Viewport } from './common';
 
-const DEEP: RGB = [22, 22, 27];
-const NIGHT: RGB = [7, 7, 9];
+const DEEP: RGB = [18, 20, 44];
+const NIGHT: RGB = [3, 3, 8];
 
 export class Backdrop {
   #tvg: ThorVGNamespace;
@@ -64,15 +64,6 @@ export class Backdrop {
         phase: i * 1.7,
       });
     }
-
-    // Depth dashes: short marks that slide by slower than the track.
-    const dashes = new tvg.Shape();
-    for (let y = 0; y < courseHeight + 1200; y += 260) {
-      dashes.appendRect(120, y, 3, 90, { rx: 1.5, ry: 1.5 });
-      dashes.appendRect(640, y + 130, 3, 90, { rx: 1.5, ry: 1.5 });
-    }
-    dashes.fill(120, 150, 230, 26);
-    depth.add(dashes);
   }
 
   layout(viewport: Viewport): void {
@@ -98,8 +89,8 @@ export class Backdrop {
     const span = Number.isFinite(time) ? time / 7 : 0;
     const i = ((Math.floor(span) % AURORA.length) + AURORA.length) % AURORA.length;
     const tint = mix(AURORA[i], AURORA[(i + 1) % AURORA.length], span - Math.floor(span));
-    const near = mix(DEEP, tint, 0.13);
-    const mid = mix(DEEP, tint, 0.04);
+    const near = mix(DEEP, tint, 0.05);
+    const mid = mix(DEEP, tint, 0.015);
 
     this.#skyFill.setStops(
       [0, [near[0], near[1], near[2], 255]],

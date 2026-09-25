@@ -6,34 +6,21 @@ import BrandMark from '../components/BrandMark';
 import NamePanel from '../components/NamePanel';
 import Comments from '../components/Comments';
 import MapEditorPanel from '../components/MapEditorPanel';
-import Toggle from '../components/Toggle';
 import RaceStage, { type StageHandle } from '../components/RaceStage';
 import type { Blueprint } from '../lib/blueprint';
 import { submitUrl } from '../lib/gallery';
-import { decodeMap, encodeMap, hasArtwork, mapHash, readMapCode } from '../lib/mapLink';
-import { compile } from '../lib/blueprint';
-import { MAX_NAMES, TRACK_LENGTHS, createCourse, generateBlueprint, type TrackLength } from '../lib/course';
+import { decodeMap, encodeMap, mapHash, readMapCode } from '../lib/mapLink';
+import { MAX_NAMES, TRACK_LENGTHS, generateBlueprint, type TrackLength } from '../lib/course';
 import { MapEditor } from '../lib/mapEditor';
 import { DEFAULT_LOCALE, detectLocale, getMessages, type Locale } from '../lib/i18n';
-import { css } from '../lib/palette';
-import { exportRace } from '../lib/lottie/export';
-import { isRecordingSupported, saveVideo, type RecordedVideo } from '../lib/recorder';
 import { hashSeed, randomSeed } from '../lib/rng';
 import type { Skin } from '../lib/skins';
 import { loadSession, saveSession } from '../lib/session';
 import { splitNames } from '../lib/share';
-import type { FollowTarget, ViewMode, WinnerInfo } from '../lib/stage';
+import type { WinnerInfo } from '../lib/stage';
 import type { Phase, RaceMode } from '../lib/types';
 
-const DEMO_ROSTER = ['Thor', 'Odin', 'Freya', 'Loki', 'Sif', 'Baldr', 'Heimdall', 'Njord', 'Idun', 'Vidar'];
-
 const RENDERERS: RendererType[] = ['sw', 'gl', 'wg'];
-
-const SPEEDS = [
-  { value: 0.75, key: 'slow' },
-  { value: 1, key: 'normal' },
-  { value: 1.5, key: 'fast' },
-] as const;
 
 const TRACKS: TrackLength[] = ['short', 'standard', 'epic'];
 
@@ -42,36 +29,25 @@ export default function Pinball() {
 
   const [names, setNames] = useState<string[]>([]);
   const [seed, setSeed] = useState('THORVG');
-  const [speed, setSpeed] = useState(1);
   const [mode, setMode] = useState<RaceMode>('winner');
   const [track, setTrack] = useState<TrackLength>('standard');
   const [renderer, setRenderer] = useState<RendererType>('gl');
   const [phase, setPhase] = useState<Phase>('idle');
   const [winner, setWinner] = useState<WinnerInfo | null>(null);
   const [autoStart, setAutoStart] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
-  const [record, setRecord] = useState(false);
-  const [sound, setSound] = useState(true);
-  const [view, setView] = useState<ViewMode>('board');
   /** Marble artwork, keyed by runner name. */
   const [skins, setSkins] = useState<Record<string, Skin>>({});
   const [skinNote, setSkinNote] = useState<string | null>(null);
-  const [follow, setFollow] = useState<FollowTarget>('leader');
-  const [canRecord, setCanRecord] = useState(true);
 
   // The map editor lives outside React: it owns the blueprint and every
   // gesture on it, and the panel subscribes to its version counter.
   const [editor] = useState(() => new MapEditor());
   const [editing, setEditing] = useState(false);
   const [customMap, setCustomMap] = useState<Blueprint | null>(null);
-  /** The map packed for the address bar, and why it could not be. */
   const [mapCode, setMapCode] = useState<string | null>(null);
-  const [mapLinkNote, setMapLinkNote] = useState<'too-large' | 'unsupported' | null>(null);
-  const [baking, setBaking] = useState(false);
-  const [bakeTrails, setBakeTrails] = useState(false);
 
   const t = getMessages(locale);
 
@@ -79,14 +55,11 @@ export default function Pinball() {
   const submitLink = mapCode ? submitUrl(mapCode) : null;
 
   const running = phase === 'preview' || phase === 'countdown' || phase === 'racing';
-  const locked = running || editing;
-  // A runner can be removed while selected, so fall back to the leader.
-  const safeFollow: FollowTarget = typeof follow === 'number' && follow < names.length ? follow : 'leader';
 
-  // Client only checks, kept out of the server render so hydration matches.
+  // Client only, kept out of the server render so hydration matches.
   useEffect(() => {
     setLocale(detectLocale());
-    setCanRecord(isRecordingSupported());
+    setSeed(randomSeed());
   }, []);
 
   useEffect(() => {
@@ -97,13 +70,11 @@ export default function Pinball() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const shared = params.get('names');
-    const sharedSeed = params.get('seed');
     const sharedRenderer = params.get('renderer') as RendererType | null;
     const sharedTrack = params.get('track') as TrackLength | null;
     const sharedMode = params.get('mode');
 
     if (shared) setNames(splitNames(shared).slice(0, MAX_NAMES));
-    if (sharedSeed) setSeed(sharedSeed.toUpperCase().slice(0, 10));
     if (sharedRenderer && RENDERERS.includes(sharedRenderer) && (sharedRenderer !== 'wg' || 'gpu' in navigator)) {
       setRenderer(sharedRenderer);
     }
@@ -114,12 +85,6 @@ export default function Pinball() {
     const session = loadSession();
     if (session) {
       if (session.skins) setSkins(session.skins);
-      if (session.speed !== undefined) setSpeed(session.speed);
-      if (session.mode === 'winner' || session.mode === 'ranking') setMode(session.mode);
-      if (session.view === 'board' || session.view === 'ride') setView(session.view);
-      if (session.follow !== undefined) setFollow(session.follow);
-      if (session.record !== undefined) setRecord(session.record);
-      if (session.sound !== undefined) setSound(session.sound);
       if (session.map) setCustomMap(session.map);
       if (session.skinsDropped) setSkinNote(getMessages(detectLocale()).skin.dropped);
     }
@@ -144,20 +109,12 @@ export default function Pinball() {
     if (!hydrated) return;
     if (!customMap) {
       setMapCode(null);
-      setMapLinkNote(null);
       return;
     }
 
     let live = true;
     void encodeMap(customMap).then((result) => {
-      if (!live) return;
-      if ('code' in result) {
-        setMapCode(result.code);
-        setMapLinkNote(null);
-      } else {
-        setMapCode(null);
-        setMapLinkNote(result.error);
-      }
+      if (live) setMapCode('code' in result ? result.code : null);
     });
     return () => {
       live = false;
@@ -167,8 +124,8 @@ export default function Pinball() {
   // Keep the stash current so a reload never loses the setup.
   useEffect(() => {
     if (!hydrated) return;
-    saveSession({ skins, speed, mode, view, follow, record, sound, map: customMap });
-  }, [skins, speed, mode, view, follow, record, sound, customMap, hydrated]);
+    saveSession({ skins, map: customMap });
+  }, [skins, customMap, hydrated]);
 
   // Keep the address bar shareable.
   useEffect(() => {
@@ -181,7 +138,7 @@ export default function Pinball() {
     const own = (key: string, value: string | null) => (value === null ? params.delete(key) : params.set(key, value));
 
     own('names', names.length ? names.join(',') : null);
-    own('seed', seed);
+    own('seed', null);
     own('renderer', renderer !== 'gl' ? renderer : null);
     own('track', track !== 'standard' ? track : null);
     own('mode', mode !== 'winner' ? mode : null);
@@ -193,15 +150,14 @@ export default function Pinball() {
       '',
       `${window.location.pathname}?${params.toString()}${mapHash(mapCode)}`,
     );
-    setCopied(false);
-  }, [names, seed, renderer, track, mode, locale, mapCode, hydrated]);
+  }, [names, renderer, track, mode, locale, mapCode, hydrated]);
 
-  // Runs after RaceStage has pushed the new roster into the stage.
+  // Runs after RaceStage has pushed the new roster and seed into the stage.
   useEffect(() => {
     if (!autoStart) return;
     setAutoStart(false);
     if (names.length >= 2) stageRef.current?.start();
-  }, [names, autoStart]);
+  }, [names, seed, autoStart]);
 
   const addNames = useCallback((raw: string) => {
     setNames((current) => {
@@ -223,48 +179,16 @@ export default function Pinball() {
     setWinner(null);
   }, []);
 
-  const clearNames = useCallback(() => {
-    setNames([]);
-    setWinner(null);
-    stageRef.current?.reset();
-  }, []);
-
-  const loadDemo = useCallback(() => {
-    setNames(DEMO_ROSTER.slice(0, MAX_NAMES));
-    setWinner(null);
-    stageRef.current?.reset();
-  }, []);
-
   const start = useCallback(() => {
     setWinner(null);
-    stageRef.current?.start();
+    setSeed(randomSeed());
+    setAutoStart(true);
   }, []);
 
   const stop = useCallback(() => {
     setWinner(null);
     stageRef.current?.reset();
   }, []);
-
-  const rerollSeed = useCallback(() => {
-    setSeed(randomSeed());
-    setWinner(null);
-  }, []);
-
-  const dropWinner = useCallback(() => {
-    if (!winner) return;
-    setNames((current) => current.filter((name) => name !== winner.name));
-    setWinner(null);
-    setSeed(randomSeed());
-    setAutoStart(true);
-  }, [winner]);
-
-  const onVideo = useCallback(
-    (video: RecordedVideo) => {
-      const winnerName = winner?.name.replace(/[^\p{L}\p{N}_-]+/gu, '') || 'race';
-      saveVideo(video, `thorvg-pinrace-${seed}-${winnerName}`);
-    },
-    [seed, winner],
-  );
 
   const setSkin = useCallback((name: string, skin: Skin | null) => {
     setSkinNote(null);
@@ -320,49 +244,6 @@ export default function Pinball() {
     setWinner(null);
   }, []);
 
-  /**
-   * Bakes the run into a Lottie: the same physics, written down as vector
-   * keyframes rather than drawn. Everything it needs is pure data, so it runs
-   * here with no engine and no recording pass.
-   */
-  const bakeLottie = useCallback(() => {
-    if (names.length < 2) return;
-    setBaking(true);
-
-    // Yielded to the browser first, so the button can show it is working.
-    setTimeout(() => {
-      try {
-        const course = customMap ? compile(customMap) : createCourse(hashSeed(seed), TRACK_LENGTHS[track]);
-        const result = exportRace({
-          course,
-          names,
-          seed,
-          mode,
-          fps: 30,
-          maxSeconds: 120,
-          trails: bakeTrails,
-          skinFor: (name) => skins[name],
-        });
-
-        const blob = new Blob([JSON.stringify(result.document)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `thorvg-pinrace-${seed}.json`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      } finally {
-        setBaking(false);
-      }
-    }, 30);
-  }, [names, seed, track, mode, customMap, skins, bakeTrails]);
-
-  const copyLink = useCallback(() => {
-    void navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true));
-  }, []);
-
   const status = useMemo(() => {
     switch (phase) {
       case 'countdown':
@@ -372,11 +253,11 @@ export default function Pinball() {
       case 'racing':
         return t.status.racing;
       case 'reveal':
-        return t.status.reveal;
+        return winner ? `${t.winner.label} · ${winner.name}` : t.status.reveal;
       default:
         return names.length ? t.status.ready : t.status.empty;
     }
-  }, [phase, names.length, t]);
+  }, [phase, names.length, winner, t]);
 
   return (
     <main className="app-shell mx-auto flex min-h-screen w-full max-w-[1180px] flex-col gap-5 px-5 py-6">
@@ -429,24 +310,26 @@ export default function Pinball() {
             />
           ) : (
           <>
-          <div className="panel p-4">
-            <div className="mb-3 flex items-center justify-between text-[13px]">
-              <span className="font-semibold">{status}</span>
-              <span className="text-[color:var(--ink-dim)]">{t.run.runners(names.length)}</span>
-            </div>
-
+          <NamePanel
+            names={names}
+            messages={t}
+            disabled={running}
+            skins={skins}
+            title={status}
+            onAdd={addNames}
+            onRemove={removeName}
+            onSkin={setSkin}
+            onSkinError={setSkinNote}
+          >
             <button
               type="button"
-              className="btn-primary w-full py-2.5 text-sm"
+              className="btn-primary mt-4 w-full py-2.5 text-sm"
               onClick={start}
               disabled={names.length < 2 || running}
             >
               {running ? t.run.running : phase === 'reveal' ? t.run.again : t.run.drop}
             </button>
 
-            {names.length < 2 && (
-              <p className="mt-2 text-center text-[11px] text-[color:var(--ink-dim)]">{t.run.needTwo}</p>
-            )}
 
             {customMap && (
               <div className="mt-2.5 flex items-center justify-between gap-2 rounded-[9px] border px-2.5 py-1.5 text-[11px]"
@@ -477,241 +360,13 @@ export default function Pinball() {
               </a>
             )}
 
-            {customMap && (mapLinkNote !== null || hasArtwork(customMap)) && (
-              <p className="mt-1.5 px-0.5 text-[10px] leading-relaxed text-[color:var(--ink-dim)]">
-                {mapLinkNote === 'too-large'
-                  ? t.editor.linkTooLarge
-                  : mapLinkNote === 'unsupported'
-                    ? t.editor.linkUnsupported
-                    : t.editor.linkNoArtwork}
-              </p>
-            )}
-
-            <div className="mt-2.5 grid grid-cols-2 gap-2">
-              <button type="button" className="btn-ghost" onClick={stop} disabled={phase === 'idle'}>
-                {t.run.reset}
-              </button>
-              <button type="button" className="btn-ghost" onClick={rerollSeed} disabled={running}>
-                {t.run.newSeed}
-              </button>
-            </div>
-          </div>
-
-          {winner && (
-            <div className="panel rise p-4" style={{ borderColor: css(winner.color, 0.42) }}>
-              <p className="text-[11px] font-medium tracking-wide text-[color:var(--ink-dim)]">{t.winner.label}</p>
-              <div className="mt-1.5 flex items-center gap-2.5">
-                <span
-                  className="h-7 w-7 shrink-0 rounded-full"
-                  style={{ background: css(winner.color) }}
-                />
-                <p className="truncate text-lg font-semibold">{winner.name}</p>
-              </div>
-              <p className="mt-2 text-[12px] text-[color:var(--ink-dim)]">
-                {winner.photoFinish ? t.winner.photoPrefix : ''}
-                {t.winner.result(winner.elapsed.toFixed(2), seed)}
-              </p>
-              {winner.ranking.length > 1 && (
-                <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--line)' }}>
-                  <p className="label">{t.winner.ranking}</p>
-                  <ol className="scroll-thin max-h-60 overflow-y-auto pr-1">
-                    {winner.ranking.map((entry) => (
-                      <li
-                        key={entry.index}
-                        className="flex items-center gap-2 py-[3px] text-[12px]"
-                      >
-                        <span className="w-5 shrink-0 text-right text-[color:var(--ink-dim)]">
-                          {entry.place}
-                        </span>
-                        <span
-                          className="h-3 w-3 shrink-0 rounded-full"
-                          style={{ background: css(entry.color) }}
-                        />
-                        <span className="truncate">{entry.name}</span>
-                        <span className="ml-auto shrink-0 text-[11px] text-[color:var(--ink-dim)]">
-                          {entry.elapsed === null ? t.winner.dnf : `${entry.elapsed.toFixed(2)}s`}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button type="button" className="btn-ghost" onClick={start}>
-                  {t.winner.again}
-                </button>
-                <button type="button" className="btn-ghost" onClick={dropWinner} disabled={names.length < 3}>
-                  {t.winner.drop}
-                </button>
-              </div>
-            </div>
-          )}
-
-          <NamePanel
-            names={names}
-            messages={t}
-            disabled={running}
-            skins={skins}
-            onAdd={addNames}
-            onRemove={removeName}
-            onClear={clearNames}
-            onDemo={loadDemo}
-            onSkin={setSkin}
-            onSkinError={setSkinNote}
-          />
+          </NamePanel>
 
           {skinNote && (
             <p className="px-1 text-[11px] leading-relaxed" style={{ color: '#ff8f6a' }}>
               {skinNote}
             </p>
           )}
-
-          <div className="panel p-4">
-            <h2 className="mb-3 text-[13px] font-semibold">{t.settings.title}</h2>
-
-            <label className="label" htmlFor="seed">
-              {t.settings.seed}
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="seed"
-                className="field font-mono uppercase tracking-widest"
-                value={seed}
-                maxLength={10}
-                disabled={running}
-                onChange={(event) => {
-                  setSeed(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'X');
-                  setWinner(null);
-                }}
-              />
-              <button type="button" className="btn-ghost shrink-0" onClick={copyLink}>
-                {copied ? t.settings.copied : t.settings.copy}
-              </button>
-            </div>
-
-            <label className="label mt-4">{t.settings.mode}</label>
-            <div className="segment">
-              {(['winner', 'ranking'] as RaceMode[]).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  data-active={mode === value}
-                  disabled={running}
-                  onClick={() => setMode(value)}
-                >
-                  {value === 'winner' ? t.settings.modeWinner : t.settings.modeRanking}
-                </button>
-              ))}
-            </div>
-
-            <label className="label mt-4">{t.settings.view}</label>
-            <div className="segment">
-              {(['board', 'ride'] as ViewMode[]).map((mode) => (
-                <button key={mode} type="button" data-active={view === mode} onClick={() => setView(mode)}>
-                  {mode === 'board' ? t.settings.viewBoard : t.settings.viewRide}
-                </button>
-              ))}
-            </div>
-
-            {view === 'ride' && (
-              <>
-                <label className="label mt-3" htmlFor="follow">
-                  {t.settings.follow}
-                </label>
-                <select
-                  id="follow"
-                  className="field"
-                  value={typeof safeFollow === 'number' ? String(safeFollow) : 'leader'}
-                  onChange={(event) =>
-                    setFollow(event.target.value === 'leader' ? 'leader' : Number(event.target.value))
-                  }
-                >
-                  <option value="leader">{t.settings.followLeader}</option>
-                  {names.map((name, index) => (
-                    <option key={`${name}-${index}`} value={index}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <p className="text-[11px] font-medium text-[color:var(--ink-dim)]">{t.settings.sound}</p>
-              <Toggle checked={sound} label={t.settings.sound} onChange={setSound} />
-            </div>
-
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <p className="text-[11px] font-medium text-[color:var(--ink-dim)]">{t.settings.record}</p>
-              <Toggle
-                checked={record && canRecord}
-                disabled={!canRecord || running}
-                label={t.settings.record}
-                onChange={setRecord}
-              />
-            </div>
-            {!canRecord && (
-              <p className="mt-1 text-[11px] leading-relaxed text-[color:var(--ink-dim)]">
-                {t.settings.recordUnsupported}
-              </p>
-            )}
-
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <p className="text-[11px] font-medium text-[color:var(--ink-dim)]">{t.settings.lottieTrails}</p>
-              <Toggle
-                checked={bakeTrails}
-                disabled={running}
-                label={t.settings.lottieTrails}
-                onChange={setBakeTrails}
-              />
-            </div>
-
-            <button
-              type="button"
-              className="btn-ghost mt-2 w-full py-2 text-[12px]"
-              disabled={names.length < 2 || running || baking}
-              onClick={bakeLottie}
-            >
-              {baking ? t.settings.lottieBaking : t.settings.lottie}
-            </button>
-            <p className="mt-1 text-[10px] leading-relaxed text-[color:var(--ink-dim)]">
-              {t.settings.lottieHint}
-            </p>
-
-            <label className="label mt-4">{t.settings.track}</label>
-            <div className="segment">
-              {TRACKS.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  data-active={track === id}
-                  disabled={running || customMap !== null}
-                  title={t.settings.tracks[id].hint}
-                  onClick={() => {
-                    setTrack(id);
-                    setWinner(null);
-                  }}
-                >
-                  {t.settings.tracks[id].label}
-                </button>
-              ))}
-            </div>
-
-            <label className="label mt-4">{t.settings.speed}</label>
-            <div className="segment">
-              {SPEEDS.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  data-active={speed === item.value}
-                  onClick={() => setSpeed(item.value)}
-                >
-                  {t.settings.speeds[item.key]}
-                </button>
-              ))}
-            </div>
-          </div>
           </>
           )}
         </aside>
@@ -721,7 +376,7 @@ export default function Pinball() {
             ref={stageRef}
             names={names}
             seed={seed}
-            speed={speed}
+            speed={1}
             mode={mode}
             track={track}
             renderer={renderer}
@@ -730,18 +385,18 @@ export default function Pinball() {
             phase={phase}
             canStart={names.length >= 2}
             hydrated={hydrated}
-            view={view}
-            follow={safeFollow}
+            view="board"
+            follow="leader"
             skins={skins}
-            record={record && canRecord}
-            sound={sound}
+            record={false}
+            sound
             editor={editing ? editor : null}
             customMap={customMap}
             onStart={start}
             onReset={stop}
             onPhase={setPhase}
             onWinner={setWinner}
-            onVideo={onVideo}
+            onVideo={() => {}}
           />
         </section>
       </div>
@@ -751,9 +406,7 @@ export default function Pinball() {
       </section>
 
       <footer className="pb-3 text-center text-[11px] leading-relaxed text-[color:var(--ink-dim)]">
-        Copyright (c) 2026 ThorVG Project
-        <br />
-        MIT License
+        Thor Pinrace powered by ThorVG Engine
       </footer>
     </main>
   );

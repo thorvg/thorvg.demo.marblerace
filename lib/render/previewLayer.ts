@@ -15,7 +15,6 @@ import { COURSE, MAX_NAMES } from '../course';
 import { clamp } from '../easing';
 import { UI, darken, lighten, mix } from '../palette';
 import {
-  LIGHT,
   Projector,
   SHADOW_SLIDE,
   lambert,
@@ -29,22 +28,25 @@ import { skinKey, skinPayload, type Skin } from '../skins';
 import type { Course, Marble, Obstacle, RGB } from '../types';
 import { advanceArt, artAlpha, artPaint, hideArt, loadArt, makeArtSlot, maskArt, sizeArt, type ArtSlot } from './artwork';
 import { ColorPool, addCapsulePath, type Viewport } from './common';
+import { lampGlow, planPlayfield, type PlayfieldPlan } from './playfield';
 
 const SLICES = 12;
 /** Anything closer than this is behind or on top of the lens, so it is dropped. */
 const NEAR = 130;
 
 const HEIGHT = {
-  peg: 21,
-  bumper: 30,
   rail: 32,
   arm: 30,
   wall: 24,
 };
 
-const FLOOR: RGB = [26, 30, 38];
-const FLOOR_FAR: RGB = [12, 14, 19];
-const GRID: RGB = [86, 104, 130];
+const FLOOR: RGB = [22, 30, 76];
+const FLOOR_FAR: RGB = [8, 10, 26];
+const GRID: RGB = [96, 128, 230];
+const WOOD: RGB = [150, 58, 38];
+const WOOD_TOP: RGB = [96, 32, 22];
+const CHROME: RGB = [150, 160, 178];
+const CHROME_LIGHT: RGB = [236, 240, 248];
 
 export interface PreviewFrame {
   pose: CameraPose;
@@ -85,7 +87,62 @@ const SHADE_UNIT = 100;
 
 interface Item {
   depth: number;
-  draw: (side: ColorPool, top: ColorPool) => void;
+  draw: (side: ColorPool, top: ColorPool, balls: BallPool) => void;
+}
+
+const BALL_UNIT = 100;
+
+class BallPool {
+  #tvg: ThorVGNamespace;
+  #scene: Scene;
+  #balls: Array<{ shape: Shape; fill: RadialGradient; key: string }> = [];
+  #used = 0;
+
+  constructor(tvg: ThorVGNamespace, scene: Scene) {
+    this.#tvg = tvg;
+    this.#scene = scene;
+  }
+
+  begin(): void {
+    this.#used = 0;
+  }
+
+  draw(x: number, y: number, r: number, color: RGB, alpha: number): void {
+    let ball = this.#balls[this.#used];
+    if (!ball) {
+      const shape = new this.#tvg.Shape();
+      const fill = new this.#tvg.RadialGradient(0, 0, BALL_UNIT, -BALL_UNIT * 0.36, -BALL_UNIT * 0.42, 0);
+      shape.appendCircle(0, 0, BALL_UNIT);
+      this.#scene.add(shape);
+      ball = { shape, fill, key: '' };
+      this.#balls.push(ball);
+    }
+    this.#used++;
+
+    const key = color.join(',');
+    if (ball.key !== key) {
+      const light = lighten(color, 0.7);
+      const mid = lighten(color, 0.12);
+      const deep = darken(color, 0.55);
+      ball.fill.setStops(
+        [0, [light[0], light[1], light[2], 255]],
+        [0.3, [mid[0], mid[1], mid[2], 255]],
+        [0.72, [color[0], color[1], color[2], 255]],
+        [1, [deep[0], deep[1], deep[2], 255]],
+      );
+      ball.shape.fill(ball.fill);
+      ball.key = key;
+    }
+    ball.shape
+      .opacity(Math.round(alpha * 255))
+      .scale(r / BALL_UNIT)
+      .translate(x, y);
+  }
+
+  /** Unused balls are hidden with zero opacity, never with `visible(false)`. */
+  finish(): void {
+    for (let i = this.#used; i < this.#balls.length; i++) this.#balls[i].shape.opacity(0);
+  }
 }
 
 /**
@@ -135,11 +192,13 @@ function fitAffine(
 
 export class PreviewLayer {
   #course: Course;
+  #plan: PlayfieldPlan;
   #projector = new Projector();
   #ground: ColorPool;
   #shadows: ColorPool;
   #sides: ColorPool[] = [];
   #tops: ColorPool[] = [];
+  #balls: BallPool[] = [];
   #items: Item[] = [];
   #skins: SkinSlot[] = [];
   #decals: Array<{ slot: ArtSlot; clipper: Shape }> = [];
@@ -149,6 +208,7 @@ export class PreviewLayer {
 
   constructor(tvg: ThorVGNamespace, root: Scene, course: Course) {
     this.#course = course;
+    this.#plan = planPlayfield(course);
     this.#tvg = tvg;
 
     const layer = () => {
@@ -168,6 +228,9 @@ export class PreviewLayer {
     for (let i = 0; i < SLICES; i++) {
       this.#sides.push(layer());
       this.#tops.push(layer());
+      const ballScene = new tvg.Scene();
+      root.add(ballScene);
+      this.#balls.push(new BallPool(tvg, ballScene));
     }
 
     // Marble artwork sits above the depth slices: a Picture cannot join the
@@ -180,6 +243,7 @@ export class PreviewLayer {
   /** The course is only read while drawing, so a new one is a field swap. */
   setCourse(course: Course): void {
     this.#course = course;
+    this.#plan = planPlayfield(course);
   }
 
   /** Loads the artwork each runner carries. Mirrors the flat marble layer. */
@@ -204,6 +268,8 @@ export class PreviewLayer {
       this.#sides[i].finish();
       this.#tops[i].begin();
       this.#tops[i].finish();
+      this.#balls[i].begin();
+      this.#balls[i].finish();
     }
   }
 
@@ -224,6 +290,7 @@ export class PreviewLayer {
     for (let i = 0; i < SLICES; i++) {
       this.#sides[i].begin();
       this.#tops[i].begin();
+      this.#balls[i].begin();
     }
     this.#items.length = 0;
 
@@ -244,7 +311,7 @@ export class PreviewLayer {
     const count = this.#items.length || 1;
     for (let i = 0; i < this.#items.length; i++) {
       const slice = Math.min(SLICES - 1, Math.floor((i * SLICES) / count));
-      this.#items[i].draw(this.#sides[slice], this.#tops[slice]);
+      this.#items[i].draw(this.#sides[slice], this.#tops[slice], this.#balls[slice]);
     }
 
     this.#ground.finish();
@@ -252,6 +319,7 @@ export class PreviewLayer {
     for (let i = 0; i < SLICES; i++) {
       this.#sides[i].finish();
       this.#tops[i].finish();
+      this.#balls[i].finish();
     }
   }
 
@@ -272,61 +340,6 @@ export class PreviewLayer {
     pool
       .shape(quantise(color), Math.round(alpha * 255))
       .appendCircle(p.x, p.y, rx, Math.max(0.4, rx * this.#projector.groundSquash));
-  }
-
-  /**
-   * The curved wall of an upright cylinder, from its foot up to `high`. The
-   * foot follows the near half of the base ellipse instead of running straight
-   * across, which is what makes the solid read as round rather than as a card
-   * standing on the board. The top edge is left straight: a cap or the next
-   * band up always covers it.
-   */
-  #drum(pool: ColorPool, color: RGB, alpha: number, low: Projected, high: Projected, radius: number): void {
-    const rl = radius * low.scale;
-    const rh = radius * high.scale;
-    const sag = Math.max(0.4, rl * this.#projector.groundSquash);
-    const k = 0.5522847498307936;
-
-    const shape = pool.shape(quantise(color), Math.round(alpha * 255));
-    shape.moveTo(high.x - rh, high.y);
-    shape.lineTo(low.x - rl, low.y);
-    shape.cubicTo(low.x - rl, low.y + sag * k, low.x - rl * k, low.y + sag, low.x, low.y + sag);
-    shape.cubicTo(low.x + rl * k, low.y + sag, low.x + rl, low.y + sag * k, low.x + rl, low.y);
-    shape.lineTo(high.x + rh, high.y);
-    shape.close();
-  }
-
-  /**
-   * A sliver of light down the lit side of a cylinder wall. `across` is where
-   * it sits on the face, -1 at the left silhouette and 1 at the right.
-   */
-  #sheen(
-    pool: ColorPool,
-    color: RGB,
-    alpha: number,
-    low: Projected,
-    high: Projected,
-    radius: number,
-    across: number,
-  ): void {
-    const squash = this.#projector.groundSquash;
-    const shape = pool.shape(quantise(color), Math.round(alpha * 255));
-    const edge = (p: Projected, u: number) => ({
-      x: p.x + u * radius * p.scale,
-      y: p.y + Math.sqrt(Math.max(0, 1 - u * u)) * radius * p.scale * squash,
-    });
-
-    const u0 = clamp(across - 0.16, -0.92, 0.92);
-    const u1 = clamp(across + 0.16, -0.92, 0.92);
-    const a = edge(high, u0);
-    const b = edge(high, u1);
-    const c = edge(low, u1);
-    const d = edge(low, u0);
-    shape.moveTo(a.x, a.y);
-    shape.lineTo(b.x, b.y);
-    shape.lineTo(c.x, c.y);
-    shape.lineTo(d.x, d.y);
-    shape.close();
   }
 
   /**
@@ -369,18 +382,6 @@ export class PreviewLayer {
     shape.close();
   }
 
-  /**
-   * Which side of an upright face the sun lands on, as seen from the camera:
-   * -1 is the left silhouette, 1 the right.
-   */
-  #litSide(x: number, y: number, at: Projected): number {
-    const towards = this.#projector.project(x + LIGHT.x * 40, y + LIGHT.y * 40, 0);
-    const dx = towards.x - at.x;
-    const dy = towards.y - at.y;
-    const len = Math.hypot(dx, dy);
-    return len < 0.001 ? 0 : (dx / len) * 0.62;
-  }
-
   /* -------------------------------------------------------------- scene */
 
   #drawFloor(from: number, to: number, alpha: number): void {
@@ -420,6 +421,23 @@ export class PreviewLayer {
       }
     }
 
+    for (const [inner, edge] of [
+      [COURSE.left - 8, 0],
+      [COURSE.right + 8, COURSE.width],
+    ] as const) {
+      this.#quad(
+        this.#ground,
+        shade(WOOD_TOP, lambert(0, 0, 1, 0.5)),
+        alpha,
+        this.#projector.project(inner, from),
+        this.#projector.project(edge, from),
+        this.#projector.project(edge, to),
+        this.#projector.project(inner, to),
+      );
+    }
+
+    this.#drawInserts(from, to, alpha);
+
     // Two lane lines running the length of the visible course.
     for (const x of [COURSE.left + (COURSE.right - COURSE.left) / 3, COURSE.right - (COURSE.right - COURSE.left) / 3]) {
       this.#quad(
@@ -431,6 +449,23 @@ export class PreviewLayer {
         this.#projector.project(x + 1.5, to),
         this.#projector.project(x - 1.5, to),
       );
+    }
+  }
+
+  #drawInserts(from: number, to: number, alpha: number): void {
+    for (const lamp of this.#plan.lamps) {
+      if (lamp.y < from || lamp.y > to) continue;
+      const p = this.#projector.project(lamp.x, lamp.y);
+      if (p.depth < NEAR) continue;
+      const glow = lampGlow(lamp, this.#time);
+      const tone = mix(darken(lamp.color, 0.62), lighten(lamp.color, 0.3), glow);
+      if (lamp.kind === 'arrow') {
+        const { x, y, r } = lamp;
+        this.#floorPoly(this.#ground, tone, alpha, [x - r, y - r * 0.55, x + r, y - r * 0.55, x, y + r * 0.85]);
+        continue;
+      }
+      this.#disc(this.#ground, [6, 8, 20], alpha * 0.85, p, lamp.r * 1.28);
+      this.#disc(this.#ground, tone, alpha, p, lamp.r);
     }
   }
 
@@ -513,18 +548,49 @@ export class PreviewLayer {
   }
 
   #drawPads(from: number, to: number, alpha: number): void {
+    const plate = darken(UI.boost, 0.45);
+    const rim = UI.boost;
+    const arrow = lighten(UI.boost, 0.2);
+    const edge = 2.5;
+
     for (const pad of this.#course.boosters) {
       if (pad.y + pad.h < from || pad.y > to) continue;
-      this.#quad(
-        this.#ground,
-        UI.boost,
-        alpha * 0.5,
-        this.#projector.project(pad.x, pad.y),
-        this.#projector.project(pad.x + pad.w, pad.y),
-        this.#projector.project(pad.x + pad.w, pad.y + pad.h),
-        this.#projector.project(pad.x, pad.y + pad.h),
-      );
+      const { x, y, w, h } = pad;
+
+      this.#floorPoly(this.#ground, plate, alpha * 0.55, [x, y, x + w, y, x + w, y + h, x, y + h]);
+
+      this.#floorPoly(this.#ground, rim, alpha * 0.7, [x, y, x + w, y, x + w, y + edge, x, y + edge]);
+      this.#floorPoly(this.#ground, rim, alpha * 0.7, [x, y + h - edge, x + w, y + h - edge, x + w, y + h, x, y + h]);
+      this.#floorPoly(this.#ground, rim, alpha * 0.7, [x, y + edge, x + edge, y + edge, x + edge, y + h - edge, x, y + h - edge]);
+      this.#floorPoly(this.#ground, rim, alpha * 0.7, [x + w - edge, y + edge, x + w, y + edge, x + w, y + h - edge, x + w - edge, y + h - edge]);
+
+      const rows = 3;
+      const span = h / rows;
+      const midX = x + w / 2;
+      const half = w * 0.3;
+      for (let i = 0; i < rows; i++) {
+        const cy = y + ((this.#time * 150 + i * span) % h) - 12;
+        if (cy < y - 6 || cy > y + h - 10) continue;
+        this.#floorPoly(this.#ground, arrow, alpha * 0.8, [
+          midX - half, cy,
+          midX, cy + 18,
+          midX + half, cy,
+          midX + half - 10, cy,
+          midX, cy + 8,
+          midX - half + 10, cy,
+        ]);
+      }
     }
+  }
+
+  #floorPoly(pool: ColorPool, color: RGB, alpha: number, points: number[]): void {
+    const shape = pool.shape(quantise(color), Math.round(alpha * 255));
+    for (let i = 0; i < points.length; i += 2) {
+      const p = this.#projector.project(points[i], points[i + 1]);
+      if (i === 0) shape.moveTo(p.x, p.y);
+      else shape.lineTo(p.x, p.y);
+    }
+    shape.close();
   }
 
   #drawFinish(alpha: number): void {
@@ -557,8 +623,8 @@ export class PreviewLayer {
       [COURSE.right, -1],
     ] as const) {
       const faceLight = lambert(inward, 0, 0, 0.3);
-      const topTone = shade(darken(UI.trackLight, 0.35), topLight);
-      const faceTone = shade(UI.track, faceLight);
+      const topTone = shade(CHROME_LIGHT, topLight);
+      const faceTone = shade(WOOD, faceLight);
 
       for (let y = start; y < to; y += step) {
         const y1 = y + step;
@@ -598,35 +664,18 @@ export class PreviewLayer {
   }
 
   #collectPegs(from: number, to: number, alpha: number): void {
-    const topLight = lambert(0, 0, 1);
-    const sideLight = lambert(0, -1, 0, 0.26);
-
     for (const peg of this.#course.pegs) {
       if (peg.y < from || peg.y > to) continue;
 
-      const height = this.#projector.lift(peg.bumper ? HEIGHT.bumper : HEIGHT.peg);
-      const base = this.#projector.project(peg.x, peg.y, 0);
-      const cap = this.#projector.project(peg.x, peg.y, height);
-      const bodyTone = shade(peg.bumper ? UI.bumper : UI.peg, sideLight);
-      const capTone = shade(peg.bumper ? UI.bumperLight : UI.pegLight, topLight);
-      // A lighter band under the cap turns the hard top edge into a shoulder.
-      const shoulderTone = mix(bodyTone, capTone, 0.45);
-      const sheenTone = lighten(bodyTone, 0.26);
+      const lift = this.#projector.lift(peg.r);
+      const centre = this.#projector.project(peg.x, peg.y, lift);
+      if (centre.depth < NEAR) continue;
+      this.#shadow(peg.x, peg.y, peg.r, lift, alpha * 0.5);
 
-      if (base.depth < NEAR) continue;
-      this.#shadow(peg.x, peg.y, peg.r * 1.05, height, alpha * 0.5);
-
+      const color = peg.bumper ? UI.bumper : CHROME;
       this.#items.push({
-        depth: base.depth,
-        draw: (side, top) => {
-          const shoulder = this.#projector.project(peg.x, peg.y, height * 0.74);
-          this.#drum(side, bodyTone, alpha, base, cap, peg.r);
-          // Both stay in the side pool: only caps go in the top one, so a cap is
-          // never painted over by the wall of a neighbour in the same band.
-          this.#sheen(side, sheenTone, alpha * 0.55, base, shoulder, peg.r, this.#litSide(peg.x, peg.y, base));
-          this.#drum(side, shoulderTone, alpha, shoulder, cap, peg.r);
-          this.#disc(top, capTone, alpha, cap, peg.r);
-        },
+        depth: centre.depth,
+        draw: (_side, _top, balls) => balls.draw(centre.x, centre.y, peg.r * centre.scale, color, alpha),
       });
     }
   }
@@ -702,25 +751,21 @@ export class PreviewLayer {
       if (centre.depth < NEAR * 0.35) continue;
       this.#shadow(marble.x, marble.y, marble.r, this.#projector.lift(marble.r * 1.4), alpha * 0.45);
 
-      const lit = shade(lighten(marble.color, 0.35), lambert(0, 0, 1, 0.7));
-      const dark = shade(marble.color, 0.55);
       const slot = this.#skins[marble.index];
       const skinned = !!slot && slot.kind !== 'none';
 
       this.#items.push({
         depth: centre.depth,
-        draw: (side, top) => {
+        draw: (side, _top, balls) => {
           const r = marble.r * centre.scale;
-          // The ball is always laid down first, so artwork with holes in it
-          // still sits on a solid marble rather than on the board.
-          side.shape(quantise(dark), Math.round(alpha * 255)).appendCircle(centre.x, centre.y, r);
           if (skinned) {
+            // The ball is laid down first, so artwork with holes in it still
+            // sits on a solid marble rather than on the board.
+            side.shape(quantise(shade(marble.color, 0.55)), Math.round(alpha * 255)).appendCircle(centre.x, centre.y, r);
             this.#wrapSkin(slot, centre.x, centre.y, r, alpha);
             return;
           }
-          top
-            .shape(quantise(lit), Math.round(alpha * 210))
-            .appendCircle(centre.x - r * 0.24, centre.y - r * 0.28, r * 0.6);
+          balls.draw(centre.x, centre.y, r, marble.color, alpha);
         },
       });
     }

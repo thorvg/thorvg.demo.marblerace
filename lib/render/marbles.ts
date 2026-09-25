@@ -6,7 +6,7 @@
 
 import type { Animation, Picture, RadialGradient, Scene, Shape, Text, ThorVGNamespace } from '@thorvg/webcanvas';
 import { MAX_NAMES } from '../course';
-import type { FontResolver } from '../fonts';
+import { glyphDrop, type FontResolver } from '../fonts';
 import { darken, lighten } from '../palette';
 import { skinKey, skinPayload, type Skin } from '../skins';
 import type { Marble, RGB } from '../types';
@@ -33,6 +33,7 @@ interface Slot {
   gloss: Shape;
   glossFill: RadialGradient;
   label: Text;
+  labelLift: number;
   skin: 'none' | 'picture' | 'animation';
   skinKey: string;
   frames: number;
@@ -48,6 +49,11 @@ export class MarbleLayer {
     this.#leaderRing = new tvg.Shape();
     trailScene.add(this.#leaderRing);
 
+    // Blended as a scene: the GL backend faults on a blended gradient fill.
+    const glowScene = new tvg.Scene();
+    glowScene.blend(tvg.BlendMethod.Add);
+    bodyScene.add(glowScene);
+
     for (let i = 0; i < MAX_NAMES; i++) {
       const trail = new tvg.Shape();
       trail.blend(tvg.BlendMethod.Add);
@@ -55,10 +61,8 @@ export class MarbleLayer {
 
       const glow = new tvg.Shape();
       const glowFill = new tvg.RadialGradient(0, 0, UNIT);
-      // No blend method here: the GL backend cannot composite blending with a
-      // gradient fill, so the halo is drawn with plain alpha.
       glow.appendCircle(0, 0, UNIT).fill(glowFill);
-      bodyScene.add(glow);
+      glowScene.add(glow);
 
       const body = new tvg.Shape();
       const bodyFill = new tvg.RadialGradient(0, 0, UNIT, -UNIT * 0.34, -UNIT * 0.4, 0);
@@ -107,6 +111,7 @@ export class MarbleLayer {
         gloss,
         glossFill,
         label,
+        labelLift: 0,
         skin: 'none',
         skinKey: '',
         frames: 0,
@@ -142,8 +147,9 @@ export class MarbleLayer {
       slot.body.stroke({ width: 9, color: [rim[0], rim[1], rim[2], 220] });
 
       slot.glowFill.setStops(
-        [0, [color[0], color[1], color[2], 150]],
-        [0.35, [color[0], color[1], color[2], 72]],
+        [0, [color[0], color[1], color[2], 235]],
+        [0.3, [color[0], color[1], color[2], 110]],
+        [0.62, [color[0], color[1], color[2], 34]],
         [1, [color[0], color[1], color[2], 0]],
       );
       slot.glow.fill(slot.glowFill);
@@ -152,8 +158,10 @@ export class MarbleLayer {
 
       const initial = Array.from(marble.name.trim())[0] ?? '?';
       const ink = darken(color, 0.68);
+      const font = fontFor(initial);
+      slot.labelLift = glyphDrop(font, initial) * 1.15;
       slot.label
-        .font(fontFor(initial))
+        .font(font)
         .text(slot.skin === 'none' ? initial : '')
         .fontSize(marble.r * 1.15)
         .fill(ink[0], ink[1], ink[2]);
@@ -218,11 +226,14 @@ export class MarbleLayer {
       const scale = marble.r / UNIT;
       const halo = marble.boost > 0 ? 3.4 : 2.6;
       slot.glow.opacity(marble.boost > 0 ? 255 : 235).scale(scale * halo).translate(marble.x, marble.y);
-      slot.label.opacity(slot.skin === 'none' ? 255 : 0).translate(marble.x, marble.y);
+      slot.label
+        .opacity(slot.skin === 'none' ? 255 : 0)
+        .translate(marble.x, marble.y - slot.labelLift * marble.r);
 
       if (slot.skin === 'none') {
         slot.body.opacity(255).scale(scale).translate(marble.x, marble.y);
         slot.gloss.opacity(0);
+        this.#drawTrail(slot.trail, marble);
         continue;
       }
 

@@ -271,3 +271,37 @@ export function addCapsulePath(shape: Shape, ax: number, ay: number, bx: number,
   arcTo(shape, ax, ay, r, down - Math.PI / 2, up - Math.PI);
   shape.close();
 }
+
+/** A capsule swept down by `depth`. Every piece is wound the same way so overlaps add up under a non-zero fill. */
+export function addExtrudedCapsule(
+  shape: Shape,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  r: number,
+  depth: number,
+): void {
+  addCapsulePath(shape, ax, ay, bx, by, r);
+  addCapsulePath(shape, ax, ay + depth, bx, by + depth, r);
+  addCapsulePath(shape, ax, ay, ax, ay + depth, r);
+  addCapsulePath(shape, bx, by, bx, by + depth, r);
+
+  const corners = [
+    [ax, ay],
+    [bx, by],
+    [bx, by + depth],
+    [ax, ay + depth],
+  ];
+  let area = 0;
+  for (let i = 0; i < 4; i++) {
+    const [px, py] = corners[i];
+    const [qx, qy] = corners[(i + 1) % 4];
+    area += px * qy - qx * py;
+  }
+  if (Math.abs(area) < 0.01) return;
+  if (area > 0) corners.reverse();
+  shape.moveTo(corners[0][0], corners[0][1]);
+  for (let i = 1; i < 4; i++) shape.lineTo(corners[i][0], corners[i][1]);
+  shape.close();
+}
