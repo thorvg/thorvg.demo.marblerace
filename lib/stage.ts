@@ -264,7 +264,11 @@ export class Stage {
         const tvg = await ensureEngine(config.renderer, config.wasmUrl);
         await loadFont(tvg, LATIN_FONT);
 
-        const canvas = new tvg.Canvas(config.selector, { width: config.width, height: config.height });
+        const canvas = new tvg.Canvas(config.selector, {
+          width: config.width,
+          height: config.height,
+          engineOption: tvg.EngineOption.None,
+        });
         const stage = new Stage(tvg, canvas, config, callbacks);
         stage.#loop(performance.now());
         return stage;

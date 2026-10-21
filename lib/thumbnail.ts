@@ -50,7 +50,7 @@ export function renderLottieThumb(tvg: ThorVGNamespace, renderer: RendererType, 
   let animation: Animation | null = null;
 
   try {
-    canvas = new tvg.Canvas(`#${id}`, { width: SIZE, height: SIZE });
+    canvas = new tvg.Canvas(`#${id}`, { width: SIZE, height: SIZE, engineOption: tvg.EngineOption.None });
     animation = new tvg.Animation();
     animation.load(payload);
 
